@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from time import time
 import torch
+import numpy as np
 from ultralytics import YOLO
 from bayes_opt import BayesianOptimization
 from bayes_opt.logger import JSONLogger
@@ -16,12 +17,15 @@ from bayes_opt.event import Events
 from config_utils import get_training_params, save_nas_results, get_initial_test_params, get_optimization_params, \
     get_search_bounds
 from model_architecture import modify_yolo_architecture, log_model_architecture
+from results_tracker import NASResultsTracker, track_nas_result
 
 # Global variables for tracking
 best_map50 = 0.0
 best_model_path = None
 writer = None
 
+# Create a global tracker for NAS results
+tracker = NASResultsTracker(output_dir="nas_results")
 
 def yolo_train(resolution, depth_mult, width_mult, kernel_size, num_channels,
                lr0=0.01, momentum=0.937, batch_size=4, iou_thresh=0.7, weight_decay=0.0005,
@@ -47,7 +51,7 @@ def yolo_train(resolution, depth_mult, width_mult, kernel_size, num_channels,
     Returns:
         mAP50 score of the trained model
     """
-    global best_map50, best_model_path, writer
+    global best_map50, best_model_path, writer, tracker
     start_time = time()
     iteration_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -192,10 +196,37 @@ def yolo_train(resolution, depth_mult, width_mult, kernel_size, num_channels,
             except Exception as e:
                 logging.error(f"Failed to save model: {e}")
 
+        # Track the result in the NAS tracker
+        params = {
+            "resolution": resolution,
+            "depth_mult": depth_mult,
+            "width_mult": width_mult,
+            "kernel_size": kernel_size,
+            "num_channels": num_channels,
+            "lr0": lr0,
+            "momentum": momentum,
+            "batch_size": batch_size,
+            "iou_thresh": iou_thresh,
+            "weight_decay": weight_decay
+        }
+        track_nas_result(tracker, params, map50, training_time, iteration_id)
+
         return map50
     except Exception as e:
         logging.error(f"Trial {iteration_id} failed: {e}")
         return 0.0
+
+
+# Create a proper callback class for early stopping
+class EarlyStopCallback:
+    def __init__(self, threshold, early_stop_dict):
+        self.threshold = threshold
+        self.early_stop_dict = early_stop_dict
+        
+    def update(self, event, instance):
+        if instance.max["target"] >= self.threshold:
+            logging.info(f"Early stopping threshold reached: {instance.max['target']:.4f} >= {self.threshold}")
+            self.early_stop_dict["should_stop"] = True
 
 
 def run_optimization(config, dataset_path, best_model_dir, init_points=5, n_iter=25, performance_threshold=0.85):
@@ -226,24 +257,19 @@ def run_optimization(config, dataset_path, best_model_dir, init_points=5, n_iter
 
     # Initialize optimizer
     optimizer = BayesianOptimization(f=yolo_train_wrapper, pbounds=pbounds, random_state=42, verbose=2)
-    logger = JSONLogger(path=os.path.join(best_model_dir, "bayesian_opt_logs.json"))
+    logs_path = os.path.join(best_model_dir, "bayesian_opt_logs.json")
+    logger = JSONLogger(path=logs_path)
     optimizer.subscribe(Events.OPTIMIZATION_STEP, logger)
 
     # Create a flag for early stopping
     early_stop = {"should_stop": False}
 
-    # Define early stopping callback
-    def early_stop_callback(ev, instance):
-        if instance.max["target"] >= performance_threshold:
-            logging.info(f"Early stopping threshold reached: {instance.max['target']:.4f} >= {performance_threshold}")
-            early_stop["should_stop"] = True
-
-    # Subscribe to optimization events
-    optimizer.subscribe(Events.OPTIMIZATION_STEP, early_stop_callback)
+    # Create and subscribe the early stopping callback object
+    early_stop_cb = EarlyStopCallback(performance_threshold, early_stop)
+    optimizer.subscribe(Events.OPTIMIZATION_STEP, early_stop_cb)
 
     try:
         # Load previous optimization results if available
-        logs_path = os.path.join(best_model_dir, "bayesian_opt_logs.json")
         if os.path.exists(logs_path):
             logging.info("Found previous optimization logs, loading previous results...")
             with open(logs_path, "r") as f:
@@ -270,32 +296,59 @@ def run_optimization(config, dataset_path, best_model_dir, init_points=5, n_iter
     # Start optimization with early stopping check
     if not early_stop["should_stop"]:
         try:
+            # Initial random exploration phase
             for i in range(init_points):
                 if early_stop["should_stop"]:
                     logging.info("Early stopping during initial points")
                     break
-                next_point = optimizer.suggest(utility)
+                
+                # Try different ways to call suggest based on the library version
+                try:
+                    # Try to use suggest() with no arguments
+                    next_point = optimizer.suggest()
+                except TypeError:
+                    # Fallback to completely random points if suggest() doesn't work
+                    next_point = {}
+                    for param, bounds in pbounds.items():
+                        next_point[param] = np.random.uniform(bounds[0], bounds[1])
+                        
                 target = yolo_train_wrapper(**next_point)
                 optimizer.register(params=next_point, target=target)
 
+            # Bayesian optimization phase
             for i in range(n_iter):
                 if early_stop["should_stop"]:
                     logging.info("Early stopping during iteration")
                     break
-                next_point = optimizer.suggest(utility)
+                
+                # Try different ways to call suggest based on the library version
+                try:
+                    # Try to use suggest() with no arguments
+                    next_point = optimizer.suggest()
+                except TypeError:
+                    # Fallback to completely random points if suggest() doesn't work
+                    next_point = {}
+                    for param, bounds in pbounds.items():
+                        next_point[param] = np.random.uniform(bounds[0], bounds[1])
+                
                 target = yolo_train_wrapper(**next_point)
                 optimizer.register(params=next_point, target=target)
+                
         except Exception as e:
             logging.error(f"Error during optimization: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+            # Return None or partial results instead of failing completely
+            if hasattr(optimizer, 'max') and optimizer.max:
+                return optimizer
+            # Create a default result with the best we found so far
+            if best_map50 > 0:
+                return {"max": {"params": {}, "target": best_map50}}
+            return None
     else:
         logging.info("Skipping optimization as performance threshold already met")
 
     return optimizer
-
-
-# Utility function for BayesianOptimization's suggest method
-def utility(params):
-    return 0
 
 
 def run_architecture_search(config, dataset_path, best_model_dir, args, performance_threshold=0.85):
@@ -312,7 +365,7 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
     Returns:
         Path to the best model
     """
-    global best_map50, best_model_path
+    global best_map50, best_model_path, tracker
 
     # Get initial test parameters from config
     initial_test_params = get_initial_test_params(config)
@@ -340,11 +393,54 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
 
     # Run Bayesian optimization with early stopping
     optimizer = run_optimization(config, dataset_path, best_model_dir, init_points, n_iter, performance_threshold)
-    best_params = optimizer.max["params"]
-    best_score = optimizer.max["target"]
+    
+    # Handle case where optimization might have failed
+    if optimizer is None:
+        logging.error("Optimization failed to produce valid results")
+        return best_model_path
+        
+    # Try to get best parameters, with fallback for incomplete optimization
+    try:
+        if hasattr(optimizer, 'max'):
+            best_params = optimizer.max["params"]
+            best_score = optimizer.max["target"]
+        else:
+            best_params = optimizer["max"]["params"]
+            best_score = optimizer["max"]["target"]
+    except (TypeError, KeyError, AttributeError):
+        # If optimizer doesn't have a max property or it's incomplete
+        logging.warning("Couldn't obtain proper optimization results, using best found so far")
+        if best_map50 > 0:
+            best_params = initial_test_params or {}  # Use initial test params as fallback
+            best_score = best_map50
+        else:
+            # No successful model at all - return None
+            logging.error("No valid model was found during optimization")
+            return None
 
     # Save the results
-    save_nas_results(best_params, best_score, optimizer, config)
+    try:
+        save_nas_results(best_params, best_score, optimizer, config)
+    except Exception as e:
+        logging.error(f"Error saving NAS results: {e}")
+
+    # Generate performance report and visualizations
+    try:
+        report = tracker.generate_report()
+        
+        # Print top models table
+        logging.info("\nTop Performing Models:")
+        logging.info(tracker.get_results_table(top_n=5))
+        
+        # Log report locations
+        logging.info(f"NAS results CSV saved to: {report['results_csv']}")
+        if report.get('progress_plot'):
+            logging.info(f"NAS progress plot saved to: {report['progress_plot']}")
+        if report.get('parameter_effects_plot'):
+            logging.info(f"NAS parameter effects plot saved to: {report['parameter_effects_plot']}")
+        logging.info(f"NAS detailed report saved to: {report['report_text']}")
+    except Exception as e:
+        logging.error(f"Error generating performance report: {e}")
 
     logging.info(f"Best model saved to: {best_model_path}")
     logging.info(f"Best parameters: {best_params}")
