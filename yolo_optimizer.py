@@ -34,8 +34,8 @@ from config_utils import (
     get_dataset_path
 )
 from optimization import (
-    run_architecture_search,
-    writer
+    run_architecture_search
+    # Remove the 'writer' import from here
 )
 from pruning import prune_model
 from quantization import run_model_quantization
@@ -46,6 +46,7 @@ DATASET_PATH = None
 BEST_MODEL_DIR = None
 PRUNED_MODEL_DIR = None
 QUANTIZED_MODEL_DIR = None
+writer = None  # Define writer as a global variable
 
 
 def setup_logging():
@@ -195,16 +196,15 @@ if __name__ == "__main__":
         logging.info(f"Override dataset path from command line: {DATASET_PATH}")
 
     try:
-
         # Override threshold if provided
         performance_threshold = args.threshold
 
         best_model_from_search = None
 
         if args.mode == "search" or args.mode == "full":
-            # Run architecture search with performance threshold
+            # Pass the writer to run_architecture_search
             best_model_from_search = run_architecture_search(config, DATASET_PATH, BEST_MODEL_DIR, args,
-                                                             performance_threshold)
+                                                             performance_threshold, writer)
 
             if best_model_from_search:
                 logging.info(f"Architecture search completed. Best model: {best_model_from_search}")

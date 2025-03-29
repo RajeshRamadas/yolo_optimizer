@@ -1,4 +1,4 @@
-# YOLO Neural Architecture Search Configuration
+# YOLO Neural Architecture Search Configuration with Complex Architecture Options
 
 # Directories
 directories:
@@ -12,26 +12,37 @@ dataset_path: data.yaml
 
 # Bayesian optimization settings
 optimization:
-  init_points: 3
-  n_iter: 15
+  init_points: 2
+  n_iter: 5
   performance_threshold: 0.85
   random_state: 42
 
 # Search space definition - [min_value, max_value]
 search_space:
-  # Architecture parameters
+  # Basic architecture parameters
   resolution: [320, 520]     # Input image size
   depth_mult: [0.33, 0.75]   # Depth multiplier (scaling of layers)
   width_mult: [0.25, 0.75]   # Width multiplier (scaling of channels)
   kernel_size: [3, 5]        # Kernel size for specific layers
   num_channels: [16, 128]    # Base number of channels
-
+  
   # Training hyperparameters
   lr0: [1.0e-5, 1.0e-2]      # Initial learning rate
   momentum: [0.6, 0.98]      # Momentum for optimizer
   batch_size: [8, 16]        # Training batch size
   iou_thresh: [0.4, 0.9]     # IoU threshold for NMS
   weight_decay: [0.0001, 0.01] # Weight decay regularization
+  
+  # Advanced architecture options
+  use_complex: [0, 1]        # Whether to use complex architecture options (0 or 1)
+  activation: [0, 1, 2]      # 0=SiLU, 1=ReLU, 2=Mish
+  use_cbam: [0, 1]           # Whether to use CBAM attention (0 or 1)
+  dropout_rate: [0.0, 0.3]   # Dropout rate for regularization
+  use_gating: [0, 1]         # Whether to use gated convolutions (0 or 1)
+  bottleneck_ratio: [0.25, 0.5] # Channel reduction ratio in bottleneck blocks
+  num_heads: [2, 4, 8]       # Number of attention heads
+  skip_connections: [0, 1, 2] # 0=standard, 1=dense, 2=residual
+  use_eca: [0, 1]            # Whether to use Efficient Channel Attention (0 or 1)
 
 # Initial test configuration (used with --low-memory flag)
 initial_test:
@@ -45,10 +56,19 @@ initial_test:
   batch_size: 4
   iou_thresh: 0.7
   weight_decay: 0.0005
+  use_complex: 0
+  activation: 0
+  use_cbam: 0
+  dropout_rate: 0.0
+  use_gating: 0
+  bottleneck_ratio: 0.25
+  num_heads: 2
+  skip_connections: 0
+  use_eca: 0
 
 # Training configuration
 training:
-  epochs: 50
+  epochs: 5
   patience: 5
   optimizer: AdamW
   save: true
@@ -59,3 +79,17 @@ pruning:
   prune_amounts: [0.1, 0.2, 0.3]
   finetune: true
   finetune_epochs: 10
+
+# Architecture transformation
+activation_mapping:
+  0: SiLU
+  1: ReLU
+  2: Mish
+  3: LeakyReLU
+  4: Hardswish
+  5: PReLU
+
+skip_connections_mapping:
+  0: standard
+  1: dense
+  2: residual
