@@ -1,0 +1,61 @@
+# YOLO Neural Architecture Search Configuration
+
+# Directories
+directories:
+  base_dir: .
+  best_model_dir: best_model
+  pruned_model_dir: pruned_models
+  quantized_model_dir: quantized_models
+
+# Dataset path
+dataset_path: data.yaml
+
+# Bayesian optimization settings
+optimization:
+  init_points: 3
+  n_iter: 15
+  performance_threshold: 0.85
+  random_state: 42
+
+# Search space definition - [min_value, max_value]
+search_space:
+  # Architecture parameters
+  resolution: [320, 520]     # Input image size
+  depth_mult: [0.33, 0.75]   # Depth multiplier (scaling of layers)
+  width_mult: [0.25, 0.75]   # Width multiplier (scaling of channels)
+  kernel_size: [3, 5]        # Kernel size for specific layers
+  num_channels: [16, 128]    # Base number of channels
+
+  # Training hyperparameters
+  lr0: [1.0e-5, 1.0e-2]      # Initial learning rate
+  momentum: [0.6, 0.98]      # Momentum for optimizer
+  batch_size: [8, 16]        # Training batch size
+  iou_thresh: [0.4, 0.9]     # IoU threshold for NMS
+  weight_decay: [0.0001, 0.01] # Weight decay regularization
+
+# Initial test configuration (used with --low-memory flag)
+initial_test:
+  resolution: 256
+  depth_mult: 0.33
+  width_mult: 0.25
+  kernel_size: 3
+  num_channels: 16
+  lr0: 0.01
+  momentum: 0.937
+  batch_size: 4
+  iou_thresh: 0.7
+  weight_decay: 0.0005
+
+# Training configuration
+training:
+  epochs: 50
+  patience: 5
+  optimizer: AdamW
+  save: true
+  verbose: true
+
+# Pruning configuration
+pruning:
+  prune_amounts: [0.1, 0.2, 0.3]
+  finetune: true
+  finetune_epochs: 10
