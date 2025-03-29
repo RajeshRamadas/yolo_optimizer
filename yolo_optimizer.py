@@ -34,8 +34,8 @@ from config_utils import (
     get_dataset_path
 )
 from optimization import (
-    run_architecture_search,
-    writer
+    run_architecture_search
+    # Remove the 'writer' import from here
 )
 from pruning import prune_model
 from quantization import run_model_quantization
@@ -46,6 +46,7 @@ DATASET_PATH = None
 BEST_MODEL_DIR = None
 PRUNED_MODEL_DIR = None
 QUANTIZED_MODEL_DIR = None
+writer = None  # Define writer as a global variable
 
 
 def setup_logging():
@@ -69,32 +70,28 @@ def setup_logging():
 
 
 def load_configuration(config_path):
-    """
-    Load YAML configuration and set up global variables
-
-    Args:
-        config_path: Path to the YAML config file
-    """
-    global config, DATASET_PATH, BEST_MODEL_DIR, PRUNED_MODEL_DIR, QUANTIZED_MODEL_DIR
-
+    global config, BEST_MODEL_DIR, PRUNED_MODEL_DIR, QUANTIZED_MODEL_DIR
+    
     # Load configuration
     config = load_yaml_config(config_path)
-
+    
     # Set up directories
     directories = get_directories(config)
     BEST_MODEL_DIR = directories.get('best_model_dir', 'best_model')
     PRUNED_MODEL_DIR = directories.get('pruned_model_dir', 'pruned_models')
     QUANTIZED_MODEL_DIR = directories.get('quantized_model_dir', 'quantized_models')
-
-    # Set dataset path
-    DATASET_PATH = get_dataset_path(config)
-
+    
+    # Set dataset path only if not already set by command line
+    global DATASET_PATH
+    if DATASET_PATH is None:
+        DATASET_PATH = get_dataset_path(config)
+    
     logging.info(f"Configuration loaded from {config_path}")
     logging.info(f"Using dataset: {DATASET_PATH}")
     logging.info(f"Best model directory: {BEST_MODEL_DIR}")
     logging.info(f"Pruned models directory: {PRUNED_MODEL_DIR}")
     logging.info(f"Quantized models directory: {QUANTIZED_MODEL_DIR}")
-
+    
     return config
 
 
@@ -190,24 +187,24 @@ if __name__ == "__main__":
 
     # Setup logging and TensorBoard
     setup_logging()
+    
+    # Load configuration
+    load_configuration(args.config)
 
     if args.data:
         DATASET_PATH = args.data
         logging.info(f"Override dataset path from command line: {DATASET_PATH}")
 
     try:
-        # Load configuration
-        load_configuration(args.config)
-
         # Override threshold if provided
         performance_threshold = args.threshold
 
         best_model_from_search = None
 
         if args.mode == "search" or args.mode == "full":
-            # Run architecture search with performance threshold
+            # Pass the writer to run_architecture_search
             best_model_from_search = run_architecture_search(config, DATASET_PATH, BEST_MODEL_DIR, args,
-                                                             performance_threshold)
+                                                             performance_threshold, writer)
 
             if best_model_from_search:
                 logging.info(f"Architecture search completed. Best model: {best_model_from_search}")
