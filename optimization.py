@@ -467,6 +467,25 @@ def train_trial_model(config_path, dataset_path, trial_dir, trial_num, args, glo
         'save': save
     }
     
+    # Apply data augmentation if configured
+    try:
+        from data_augmentation import get_augmentation_params, apply_augmentation_config_to_training
+        
+        # Get augmentation parameters from config
+        aug_params = get_augmentation_params(global_config)
+        
+        if aug_params:
+            logging.info(f"Applying data augmentation: {aug_params}")
+            train_args = apply_augmentation_config_to_training(train_args, aug_params, os.path.join(trial_dir, f'trial_{trial_num}'))
+        else:
+            logging.info("No augmentation configuration found. Using default training settings.")
+    except ImportError:
+        logging.warning("Data augmentation module not available. Continuing without augmentation.")
+    except Exception as e:
+        logging.error(f"Error applying augmentation: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+    
     # Train model
     try:
         results = model.train(**train_args)
@@ -504,8 +523,7 @@ def train_trial_model(config_path, dataset_path, trial_dir, trial_num, args, glo
         import traceback
         logging.error(traceback.format_exc())
         return None, None
-
-
+        
 def update_bayesian_optimizer(optimizer, suggestion, map50):
     """
     Update Bayesian optimizer with results.

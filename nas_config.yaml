@@ -93,3 +93,63 @@ skip_connections_mapping:
   0: standard
   1: dense
   2: residual
+
+# Data Augmentation Configuration
+augmentation:
+  # Basic YOLOv8 augmentations
+  use_mosaic: true           # Use mosaic augmentation
+  mosaic_prob: 1.0           # Probability of applying mosaic
+  use_mixup: true            # Use mixup augmentation
+  mixup_prob: 0.15           # Probability of applying mixup
+  use_copy_paste: true       # Use copy-paste augmentation
+  copy_paste_prob: 0.3       # Probability of applying copy-paste
+  
+  # Color and geometry transformations
+  hsv_h: 0.015               # HSV Hue augmentation (0-1)
+  hsv_s: 0.7                 # HSV Saturation augmentation (0-1)
+  hsv_v: 0.4                 # HSV Value augmentation (0-1)
+  degrees: 10.0              # Rotation degrees (0-180)
+  translate: 0.2             # Translation (0-1)
+  scale: 0.5                 # Scaling (0-1)
+  shear: 2.0                 # Shear (0-10)
+  perspective: 0.0001        # Perspective (0-0.001)
+  flipud: 0.1                # Vertical flip (0-1)
+  fliplr: 0.5                # Horizontal flip (0-1)
+  
+  # Advanced augmentations (requires albumentations library)
+  use_albumentations: true
+  
+  # Blur and noise augmentations
+  blur: true
+  blur_prob: 0.1
+  motion_blur: true
+  motion_blur_prob: 0.1
+  median_blur: true
+  median_blur_prob: 0.1
+  iso_noise: true
+  iso_noise_prob: 0.1
+  
+  # Enhancement augmentations
+  clahe: true
+  clahe_prob: 0.1
+  sharpen: true
+  sharpen_prob: 0.1
+  emboss: true
+  emboss_prob: 0.1
+  
+  # Lighting augmentations
+  random_brightness_contrast: true
+  brightness_limit: 0.2
+  contrast_limit: 0.2
+  random_brightness_contrast_prob: 0.3
+  random_gamma: true
+  random_gamma_prob: 0.2
+  random_shadow: true
+  random_shadow_prob: 0.2
+  
+  # Regularization augmentations
+  cutout: true
+  cutout_holes: 8
+  cutout_height: 8
+  cutout_width: 8
+  cutout_prob: 0.5
