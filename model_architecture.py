@@ -8,6 +8,7 @@ import yaml
 import logging
 from ultralytics import YOLO
 import torch.nn as nn
+import torch
 
 # Dictionary mapping activation function strings to their implementation
 ACTIVATION_FUNCTIONS = {
@@ -357,6 +358,30 @@ def log_model_architecture(model_path):
             logging.info(f"- Total Layers: {backbone_layers + head_layers}")
             logging.info(f"  - Backbone Layers: {backbone_layers}")
             logging.info(f"  - Head Layers: {head_layers}")
+            
+            # NEW: Enhanced logging for model structure
+            backbone = config.get('backbone', [])
+            head = config.get('head', [])
+            
+            logging.info(f"- Detailed Backbone Structure:")
+            for i, layer in enumerate(backbone):
+                if len(layer) >= 4:  # Should have [from, number, module, args]
+                    logging.info(f"  Layer {i}: {layer[2]} - Args: {layer[3]}")
+            
+            logging.info(f"- Detailed Head Structure:")
+            for i, layer in enumerate(head):
+                if isinstance(layer, list) and len(layer) >= 3:  # Should have structure
+                    logging.info(f"  Layer {i}: {layer[2]} - Args: {layer[3] if len(layer) > 3 else 'N/A'}")
+            
+            # Calculate and log parameter counts (estimated)
+            try:
+                channels_base = int(backbone[0][3][0]) if backbone and len(backbone) > 0 and len(backbone[0]) > 3 else 32
+                width_mult = float(config.get('width_multiple', 1.0))
+                depth_mult = float(config.get('depth_multiple', 1.0))
+                estimated_params = estimate_params(channels_base, width_mult, depth_mult, backbone_layers, head_layers)
+                logging.info(f"- Estimated Parameters: {estimated_params:,}")
+            except Exception as est_err:
+                logging.warning(f"  Could not estimate parameters: {est_err}")
         
         # If it's a model file, load it and print its summary
         else:
@@ -373,3 +398,161 @@ def log_model_architecture(model_path):
         logging.error(f"Failed to display model architecture: {e}")
         import traceback
         logging.error(traceback.format_exc())
+
+# NEW: Helper function to estimate parameters
+def estimate_params(base_channels, width_mult, depth_mult, backbone_layers, head_layers):
+    """Rough estimation of parameter count based on network structure"""
+    # This is a very rough estimate - real count requires actual model
+    base_params = 1000000  # Base YOLO nano has ~1M params
+    # Scale based on width (quadratic effect on conv layers)
+    width_scale = width_mult ** 2
+    # Scale based on depth
+    depth_scale = depth_mult
+    # Scale based on layer count
+    layer_scale = (backbone_layers + head_layers) / 20  # Standard YOLOv8n has ~20 layers
+    
+    return int(base_params * width_scale * depth_scale * layer_scale)
+
+# NEW: Function to compare model structures
+def compare_model_structures(model_path1, model_path2):
+    """
+    Compare two model architectures and log differences
+    
+    Args:
+        model_path1: Path to first model YAML
+        model_path2: Path to second model YAML
+    """
+    try:
+        # Load both configurations
+        with open(model_path1, 'r') as f1:
+            config1 = yaml.safe_load(f1)
+        
+        with open(model_path2, 'r') as f2:
+            config2 = yaml.safe_load(f2)
+        
+        # Compare basic parameters
+        logging.info(f"Model Comparison - {os.path.basename(model_path1)} vs {os.path.basename(model_path2)}:")
+        
+        # Compare depth and width
+        depth1 = config1.get('depth_multiple', 'N/A')
+        depth2 = config2.get('depth_multiple', 'N/A')
+        logging.info(f"- Depth Multiple: {depth1} vs {depth2} - {'SAME' if depth1 == depth2 else 'DIFFERENT'}")
+        
+        width1 = config1.get('width_multiple', 'N/A')
+        width2 = config2.get('width_multiple', 'N/A')
+        logging.info(f"- Width Multiple: {width1} vs {width2} - {'SAME' if width1 == width2 else 'DIFFERENT'}")
+        
+        # Compare activation and dropout
+        act1 = config1.get('activation', 'SiLU')
+        act2 = config2.get('activation', 'SiLU')
+        logging.info(f"- Activation: {act1} vs {act2} - {'SAME' if act1 == act2 else 'DIFFERENT'}")
+        
+        drop1 = config1.get('dropout', 0.0)
+        drop2 = config2.get('dropout', 0.0)
+        logging.info(f"- Dropout: {drop1} vs {drop2} - {'SAME' if drop1 == drop2 else 'DIFFERENT'}")
+        
+        # Compare layer counts
+        backbone1 = len(config1.get('backbone', []))
+        backbone2 = len(config2.get('backbone', []))
+        logging.info(f"- Backbone Layers: {backbone1} vs {backbone2} - {'SAME' if backbone1 == backbone2 else 'DIFFERENT'}")
+        
+        head1 = len(config1.get('head', []))
+        head2 = len(config2.get('head', []))
+        logging.info(f"- Head Layers: {head1} vs {head2} - {'SAME' if head1 == head2 else 'DIFFERENT'}")
+        
+        # Quick check of structure (e.g., first backbone and head layers)
+        if config1.get('backbone') and config2.get('backbone'):
+            first_layer1 = config1['backbone'][0] if config1['backbone'] else None
+            first_layer2 = config2['backbone'][0] if config2['backbone'] else None
+            logging.info(f"- First Backbone Layer: {'SAME' if first_layer1 == first_layer2 else 'DIFFERENT'}")
+        
+        if config1.get('head') and config2.get('head'):
+            first_head1 = config1['head'][0] if config1['head'] else None
+            first_head2 = config2['head'][0] if config2['head'] else None
+            logging.info(f"- First Head Layer: {'SAME' if first_head1 == first_head2 else 'DIFFERENT'}")
+        
+        # Return a summary of differences
+        differences = {
+            'depth': depth1 != depth2,
+            'width': width1 != width2,
+            'activation': act1 != act2,
+            'dropout': drop1 != drop2,
+            'backbone_layers': backbone1 != backbone2,
+            'head_layers': head1 != head2
+        }
+        
+        total_diffs = sum(1 for diff in differences.values() if diff)
+        logging.info(f"Summary: Found {total_diffs} significant differences between models")
+        
+        return differences, total_diffs > 0
+        
+    except Exception as e:
+        logging.error(f"Error comparing model structures: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return {}, False
+
+# NEW: Function to check model initialization errors
+def check_model_initialization(model_path):
+    """
+    Test if a model can be successfully initialized
+    
+    Args:
+        model_path: Path to model YAML or PT file
+        
+    Returns:
+        Tuple of (success, error_message)
+    """
+    try:
+        model = YOLO(model_path)
+        # Try to access some properties to ensure it's loaded properly
+        if hasattr(model, 'model'):
+            param_count = sum(p.numel() for p in model.model.parameters())
+            logging.info(f"Model initialized successfully with {param_count:,} parameters")
+            return True, None
+        else:
+            return False, "Model loaded but incomplete structure"
+    except Exception as e:
+        error_msg = str(e)
+        logging.error(f"Failed to initialize model from {model_path}: {error_msg}")
+        return False, error_msg
+
+# NEW: Function to generate a "fingerprint" of model architecture
+def get_model_fingerprint(model_path):
+    """
+    Generate a unique fingerprint for a model architecture to detect duplicates
+    
+    Args:
+        model_path: Path to model YAML
+        
+    Returns:
+        Tuple of (success, fingerprint_str)
+    """
+    try:
+        with open(model_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        # Extract key parameters
+        depth = config.get('depth_multiple', 0)
+        width = config.get('width_multiple', 0)
+        act = config.get('activation', 'SiLU')
+        drop = config.get('dropout', 0)
+        
+        # Count layers and channels
+        backbone = config.get('backbone', [])
+        head = config.get('head', [])
+        
+        # Count unique modules
+        modules = set()
+        for layer in backbone + head:
+            if isinstance(layer, list) and len(layer) >= 3:
+                module_name = layer[2]
+                modules.add(module_name)
+        
+        # Create fingerprint string
+        fingerprint = f"D{depth:.2f}_W{width:.2f}_A{act}_DR{drop:.2f}_M{','.join(sorted(modules))}"
+        
+        return True, fingerprint
+    except Exception as e:
+        logging.error(f"Failed to generate model fingerprint: {e}")
+        return False, None

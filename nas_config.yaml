@@ -13,33 +13,35 @@ dataset_path: "data.yaml"  # This will be overridden by command line
 
 # Search space for architecture optimization
 search_space:
-  # Architecture parameters
-  depth_mult: [0.33, 0.67]      # Lower depth for faster learning
-  width_mult: [0.5, 0.75]       # Moderate width for balance
-  kernel_size: [3, 5]           # Smaller kernels compute faster
-  num_channels: [32, 64]        # Fewer initial channels
-  resolution: [320, 416]        # Lower resolution for faster training
+  # Architecture parameters - EXPANDED RANGES
+  depth_mult: [0.25, 1.0]       # Wider range for depth multiplier
+  width_mult: [0.25, 1.0]       # Wider range for width multiplier
+  kernel_size: [3, 7]           # Allow larger kernels
+  num_channels: [16, 96]        # Wider range for channel count
+  resolution: [256, 640]        # Wider range for resolution
   
-  # Advanced architecture options
-  use_complex: [1, 1]           # Always use complex model (more efficient design)
-  activation: [0, 1]            # Try different activations (SiLU, ReLU)
+  # Advanced architecture options - EXPANDED OPTIONS
+  use_complex: [0, 1]           # Allow both simple and complex models
+  activation: [0, 3]            # Try more activation functions (SiLU, ReLU, LeakyReLU, Hardswish)
   use_cbam: [0, 1]              # Test with and without attention
-  dropout_rate: [0.1, 0.3]      # Moderate dropout for regularization
+  dropout_rate: [0.0, 0.5]      # Wider range for dropout
   use_gating: [0, 1]            # Try with and without gating
-  bottleneck_ratio: [0.5, 0.5]  # Fixed bottleneck ratio for consistency
-  num_heads: [2, 4]             # Fewer attention heads
-  skip_connections: [0, 2]      # Standard or residual connections for faster gradient flow
+  bottleneck_ratio: [0.25, 0.75]  # Variable bottleneck ratio
+  num_heads: [1, 8]             # More variety in attention heads
+  skip_connections: [0, 2]      # Standard, dense or residual connections
   use_eca: [0, 1]               # Try with and without ECA
 
 # Mapping for categorical parameters
 activation_mapping:
-  0: "SiLU"    # Default YOLOv8 activation
-  1: "ReLU"    # Simpler activation, sometimes trains faster
+  0: "SiLU"       # Default YOLOv8 activation
+  1: "ReLU"       # Simpler activation, sometimes trains faster
+  2: "LeakyReLU"  # Better gradient flow for negative values
+  3: "Hardswish"  # Modern activation with good properties
 
 skip_connections_mapping:
-  0: "standard"  # Standard YOLOv8 connections
-  1: "dense"     # DenseNet-style connections
-  2: "residual"  # ResNet-style connections
+  0: "standard"   # Standard YOLOv8 connections
+  1: "dense"      # DenseNet-style connections
+  2: "residual"   # ResNet-style connections
 
 # Initial test configuration
 initial_test:

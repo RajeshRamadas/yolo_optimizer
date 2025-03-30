@@ -14,12 +14,17 @@ import random
 import shutil
 from datetime import datetime
 
+MODEL_FINGERPRINTS = set()
+
 # Import model_architecture functions
 from model_architecture import (
     create_custom_yolo_config,
     create_complex_yolo_config,
     save_model_config as save_arch_config,
-    log_model_architecture
+    log_model_architecture,
+    check_model_initialization,  # NEW: Added import for model initialization check
+    get_model_fingerprint,       # NEW: Added import for model fingerprint
+    compare_model_structures     # NEW: Added import for model comparison
 )
 
 # Try to import optional dependencies
@@ -34,6 +39,9 @@ except ImportError:
 # Constants
 MAX_TRIALS = 50
 EARLY_STOP_PATIENCE = 5
+
+# NEW: Track model fingerprints to detect duplicates
+MODEL_FINGERPRINTS = set()
 
 
 def log_to_tensorboard(writer, tag, value, step, default=0):
@@ -64,7 +72,6 @@ def get_range(range_list):
     if isinstance(range_list, list) and len(range_list) == 2:
         return (range_list[0], range_list[1])
     return range_list  # Return as is if not a range list
-
 
 def generate_search_space_from_config(config):
     """
@@ -241,7 +248,6 @@ def generate_default_search_space():
     
     return search_space
 
-
 def sample_parameters_from_config(search_space, optimizer=None, iteration=0, config=None):
     """
     Sample parameters from the search space defined in the config.
@@ -255,11 +261,15 @@ def sample_parameters_from_config(search_space, optimizer=None, iteration=0, con
     Returns:
         Dictionary of sampled parameters
     """
+    # Reset random seed for each iteration to ensure diversity
+    import time
+    random.seed(int(time.time() * 1000) + iteration)  # Use current time plus iteration as seed
+    
     params = {}
     
     # Get activation and skip connections mappings
     activation_mapping = config.get("activation_mapping", {
-        0: "SiLU", 1: "ReLU", 2: "Mish", 3: "LeakyReLU"
+        0: "SiLU", 1: "ReLU", 2: "LeakyReLU", 3: "Hardswish"
     })
     
     skip_connections_mapping = config.get("skip_connections_mapping", {
@@ -305,9 +315,14 @@ def sample_parameters_from_config(search_space, optimizer=None, iteration=0, con
     if 'skip_connections' in params and isinstance(params['skip_connections'], int):
         params['skip_connections'] = skip_connections_mapping.get(params['skip_connections'], "standard")
     
+    # Debug log sampled parameters to verify diversity
+    logging.info(f"Trial {iteration} - Sampled parameters: depth_mult={params.get('depth_mult', 'N/A')}, " 
+                f"width_mult={params.get('width_mult', 'N/A')}, " 
+                f"activation={params.get('activation', 'N/A')}, "
+                f"dropout_rate={params.get('dropout_rate', 'N/A')}")
+    
     return params
-
-
+    
 def create_model_configuration_from_params(params, config):
     """
     Create a model configuration based on the sampled parameters using model_architecture functions.
@@ -389,9 +404,7 @@ def save_model_config(config_yaml, trial_dir, trial_num):
     except Exception as e:
         logging.error(f"Error saving model configuration: {e}")
         return None
-
-# Replace the train_trial_model function in optimization.py with this updated version
-
+        
 def train_trial_model(config_path, dataset_path, trial_dir, trial_num, args, global_config):
     """
     Train a model with the given configuration.
@@ -411,6 +424,25 @@ def train_trial_model(config_path, dataset_path, trial_dir, trial_num, args, glo
     
     # Log the model architecture
     log_model_architecture(config_path)
+    
+    # NEW: Check for model initialization issues
+    init_success, init_error = check_model_initialization(config_path)
+    if not init_success:
+        logging.warning(f"Model initialization check failed: {init_error}")
+        logging.warning("Will attempt to train anyway, but may fall back to default model")
+    else:
+        logging.info("Model initialization check passed successfully")
+    
+    # NEW: Check for duplicate model architecture
+    if config_path.endswith('.yaml'):
+        fp_success, fingerprint = get_model_fingerprint(config_path)
+        if fp_success:
+            if fingerprint in MODEL_FINGERPRINTS:
+                logging.warning(f"Duplicate model architecture detected with fingerprint: {fingerprint}")
+                logging.warning("This model has the same fundamental structure as a previously tested model")
+            else:
+                MODEL_FINGERPRINTS.add(fingerprint)
+                logging.info(f"New model architecture fingerprint: {fingerprint}")
     
     # Determine image size from configuration or use default
     try:
@@ -445,11 +477,27 @@ def train_trial_model(config_path, dataset_path, trial_dir, trial_num, args, glo
     # Initialize YOLOv8 with custom configuration
     try:
         model = YOLO(config_path)
+        # NEW: Log a success message
+        logging.info(f"Successfully initialized model with config: {config_path}")
+        
+        # NEW: Log model size information
+        if hasattr(model, 'model'):
+            param_count = sum(p.numel() for p in model.model.parameters())
+            logging.info(f"Model has {param_count:,} parameters")
+            
+            # Log the first layer structure as a sanity check
+            if hasattr(model.model, 'model') and len(model.model.model) > 0:
+                first_layer = model.model.model[0]
+                logging.info(f"First layer: {type(first_layer).__name__}")
     except Exception as e:
         logging.error(f"Error initializing YOLO model with config {config_path}: {e}")
         # Fall back to default model
-        logging.info("Falling back to default YOLOv8n model")
+        logging.warning("Falling back to default YOLOv8n model")
         model = YOLO('yolov8n.yaml')
+        
+        # NEW: Track fallback occurrences
+        global_config['_fallback_count'] = global_config.get('_fallback_count', 0) + 1
+        logging.warning(f"This is fallback #{global_config['_fallback_count']} in this search session")
     
     # Set up training parameters
     train_args = {
@@ -524,6 +572,7 @@ def train_trial_model(config_path, dataset_path, trial_dir, trial_num, args, glo
         logging.error(traceback.format_exc())
         return None, None
         
+
 def update_bayesian_optimizer(optimizer, suggestion, map50):
     """
     Update Bayesian optimizer with results.
@@ -580,6 +629,7 @@ def save_best_model(model_path, best_model_dir, map50, trial_num):
         logging.error(f"Error saving model architecture: {e}")
     
     return best_model_path
+
 
 def evaluate_trial(model_path, dataset_path):
     """
@@ -671,8 +721,7 @@ def evaluate_trial(model_path, dataset_path):
     except Exception as e:
         logging.error(f"Error evaluating model: {e}")
         return {"map50": 0.0, "precision": 0.0, "recall": 0.0}
-
-
+   
 def run_architecture_search(config, dataset_path, best_model_dir, args, performance_threshold, writer=None):
     """
     Run neural architecture search using Bayesian optimization
@@ -714,6 +763,11 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
     
     no_improvement_count = 0
     
+    # NEW: Initialize counters for tracking model diversity and success rates
+    fallback_count = 0
+    unique_models_count = 0
+    model_initialization_failures = 0
+    
     # Run search iterations
     for iteration in range(num_iterations):
         logging.info(f"\n--- Starting Trial {iteration + 1}/{num_iterations} ---")
@@ -736,6 +790,20 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
         
         # Train trial model with the configuration
         model_path, results = train_trial_model(config_path, dataset_path, trial_dir, iteration, args, config)
+        
+        # Update counters for tracking diversity
+        if '_fallback_count' in config and config['_fallback_count'] > fallback_count:
+            fallback_count = config['_fallback_count']
+            model_initialization_failures += 1
+        
+        # Track number of unique models (based on fingerprints)
+        unique_models_count = len(MODEL_FINGERPRINTS)
+        
+        # Log diversity stats
+        logging.info(f"Model Diversity Stats - Trial {iteration + 1}:")
+        logging.info(f"  Unique model architectures: {unique_models_count}")
+        logging.info(f"  Model initialization failures: {model_initialization_failures}")
+        logging.info(f"  Fallback to default model: {fallback_count} times")
         
         # Evaluate model
         if model_path:
@@ -782,6 +850,11 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
     if best_model_path:
         logging.info(f"Neural architecture search completed successfully.")
         logging.info(f"Best model: {best_model_path} with mAP@50: {best_map50:.4f}")
+        logging.info(f"Search Statistics Summary:")
+        logging.info(f"  Total iterations ran: {iteration + 1} of {num_iterations}")
+        logging.info(f"  Unique model architectures: {unique_models_count}")
+        logging.info(f"  Model initialization failures: {model_initialization_failures}")
+        logging.info(f"  Fallback to default model: {fallback_count} times")
         
         # Log to TensorBoard
         log_to_tensorboard(writer, "search/best_map50", best_map50, num_iterations)
@@ -789,3 +862,4 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
         logging.error("No valid model found during architecture search.")
     
     return best_model_path
+
