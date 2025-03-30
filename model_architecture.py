@@ -14,7 +14,7 @@ ACTIVATION_FUNCTIONS = {
     'SiLU': 'SiLU()',  # Default YOLOv8 activation
     'ReLU': 'ReLU()',
     'LeakyReLU': 'LeakyReLU(0.1)',
-    'Mish': 'Mish()',
+    # Removed Mish since it's not defined in your environment
     'Hardswish': 'Hardswish()',
     'PReLU': 'PReLU()'
 }
@@ -31,7 +31,7 @@ def create_complex_yolo_config(depth_mult, width_mult, kernel_size, num_channels
         width_mult: Width multiplier (scaling of channels)
         kernel_size: Kernel size for specific layers
         num_channels: Base number of channels
-        activation: Activation function ('SiLU', 'ReLU', 'Mish', etc.)
+        activation: Activation function ('SiLU', 'ReLU', 'LeakyReLU', etc.)
         use_cbam: Whether to use CBAM attention modules
         dropout_rate: Dropout rate for regularization
         use_gating: Whether to use gated convolutions
@@ -68,9 +68,9 @@ def create_complex_yolo_config(depth_mult, width_mult, kernel_size, num_channels
     
     # Choose skip connection type
     if skip_connections == 'dense':
-        skip_type = 'C2fDense'  # Dense connections like DenseNet
+        skip_type = 'C2f'  # Standard YOLOv8 connections as fallback
     elif skip_connections == 'residual':
-        skip_type = 'C2fResidual'  # ResNet-style residual connections
+        skip_type = 'C2f'  # Standard YOLOv8 connections as fallback
     else:
         skip_type = 'C2f'  # Standard YOLOv8 skip connections
     
@@ -78,7 +78,6 @@ def create_complex_yolo_config(depth_mult, width_mult, kernel_size, num_channels
     backbone = [
         # [from, number, module, args]
         [-1, 1, 'Conv', [num_channels, 3, 2, 1]],  # 0-P1/2 (stride 2)
-        [-1, 1, 'BatchNorm2d', [num_channels]],    # Add explicit normalization for faster convergence
     ]
     
     # Add attention if requested
@@ -88,14 +87,8 @@ def create_complex_yolo_config(depth_mult, width_mult, kernel_size, num_channels
     # Continue with the backbone
     backbone.extend([
         [-1, 1, 'Conv', [num_channels * 2, 3, 2, 1]],  # P2/4 (stride 2)
-        [-1, 1, 'BatchNorm2d', [num_channels * 2]],    # Add normalization
         [-1, 3, skip_type, [num_channels * 2, True, bottleneck_ch]],
-    ])
-    
-    # Add a feature pyramid stage with fewer layers for faster training
-    backbone.extend([
         [-1, 1, 'Conv', [num_channels * 4, 3, 2, 1]],  # P3/8 (stride 2)
-        [-1, 1, 'BatchNorm2d', [num_channels * 4]],    # Add normalization
     ])
     
     # Add attention if requested
@@ -106,7 +99,6 @@ def create_complex_yolo_config(depth_mult, width_mult, kernel_size, num_channels
     backbone.extend([
         [-1, 3, skip_type, [num_channels * 4, True, bottleneck_ch * 2]],  # Reduced from 6 to 3
         [-1, 1, 'Conv', [num_channels * 8, 3, 2, 1]],  # P4/16 (stride 2)
-        [-1, 1, 'BatchNorm2d', [num_channels * 8]],    # Add normalization
     ])
     
     # Add attention if requested
@@ -117,7 +109,6 @@ def create_complex_yolo_config(depth_mult, width_mult, kernel_size, num_channels
     backbone.extend([
         [-1, 3, skip_type, [num_channels * 8, True, bottleneck_ch * 4]],  # Reduced from 6 to 3
         [-1, 1, 'Conv', [num_channels * 16, 3, 2, 1]],  # P5/32 (stride 2)
-        [-1, 1, 'BatchNorm2d', [num_channels * 16]],   # Add normalization
     ])
     
     # Add attention if requested
@@ -127,11 +118,10 @@ def create_complex_yolo_config(depth_mult, width_mult, kernel_size, num_channels
     # Finish the backbone
     backbone.append([-1, 2, skip_type, [num_channels * 16, True, bottleneck_ch * 8]])  # Reduced from 3 to 2
     
-    # Store the indices for use in the head - adjusting for the added BatchNorm layers
-    # These indices need to be carefully calculated based on the backbone structure
-    backbone_p3_idx = 8 if attn_module == 'Identity' else 9
-    backbone_p4_idx = 12 if attn_module == 'Identity' else 14
-    backbone_p5_idx = 16 if attn_module == 'Identity' else 19
+    # Store the indices for use in the head
+    backbone_p3_idx = 5 if attn_module == 'Identity' else 6
+    backbone_p4_idx = 8 if attn_module == 'Identity' else 10
+    backbone_p5_idx = 11 if attn_module == 'Identity' else 14
     
     # Build the head configuration
     head = [
@@ -231,18 +221,13 @@ def create_custom_yolo_config(depth_mult, width_mult, kernel_size, num_channels)
         'backbone': [
             # [from, number, module, args]
             [-1, 1, 'Conv', [num_channels, 3, 2, 1]],  # 0-P1/2  (Use fixed kernel_size=3 for initial layers)
-            [-1, 1, 'BatchNorm2d', [num_channels]],    # Add normalization for faster convergence
             [-1, 1, 'Conv', [num_channels * 2, 3, 2, 1]],  # 1-P2/4
-            [-1, 1, 'BatchNorm2d', [num_channels * 2]],  # Add normalization
             [-1, 2, 'C2f', [num_channels * 2, True]],  # Reduced from 3 to 2 for faster training
             [-1, 1, 'Conv', [num_channels * 4, 3, 2, 1]],  # 3-P3/8
-            [-1, 1, 'BatchNorm2d', [num_channels * 4]],  # Add normalization
             [-1, 3, 'C2f', [num_channels * 4, True]],  # Reduced from 6 to 3
             [-1, 1, 'Conv', [num_channels * 8, 3, 2, 1]],  # 5-P4/16
-            [-1, 1, 'BatchNorm2d', [num_channels * 8]],  # Add normalization
             [-1, 3, 'C2f', [num_channels * 8, True]],  # Reduced from 6 to 3
             [-1, 1, 'Conv', [num_channels * 16, 3, 2, 1]],  # 7-P5/32
-            [-1, 1, 'BatchNorm2d', [num_channels * 16]],  # Add normalization
             [-1, 2, 'C2f', [num_channels * 16, True]],  # Reduced from 3 to 2
         ],
         
@@ -250,11 +235,11 @@ def create_custom_yolo_config(depth_mult, width_mult, kernel_size, num_channels)
         'head': [
             [-1, 1, 'SPPF', [num_channels * 16, kernel_size]],  # 9
             [-1, 1, 'nn.Upsample', [None, 2, 'nearest']],
-            [[-1, 10], 1, 'Concat', [1]],  # cat backbone P4 (adjusted index due to added BatchNorm)
+            [[-1, 6], 1, 'Concat', [1]],  # cat backbone P4
             [-1, 2, 'C2f', [num_channels * 8, False]],  # 12 (reduced from 3 to 2)
             
             [-1, 1, 'nn.Upsample', [None, 2, 'nearest']],
-            [[-1, 7], 1, 'Concat', [1]],  # cat backbone P3 (adjusted index)
+            [[-1, 4], 1, 'Concat', [1]],  # cat backbone P3
             [-1, 2, 'C2f', [num_channels * 4, False]],  # 15 (P3/8-small) (reduced from 3 to 2)
             
             [-1, 1, 'Conv', [num_channels * 4, 3, 2, 1]],
@@ -315,7 +300,7 @@ def modify_yolo_architecture(depth_mult, width_mult, kernel_size, num_channels, 
         num_channels: Base number of channels
         best_model_dir: Directory to save the model architecture
         use_complex: Whether to use complex architecture with additional options
-        activation: Activation function ('SiLU', 'ReLU', 'Mish', etc.)
+        activation: Activation function ('SiLU', 'ReLU', 'LeakyReLU', etc.)
         use_cbam: Whether to use attention modules
         dropout_rate: Dropout rate for regularization
         use_gating: Whether to use gated convolutions

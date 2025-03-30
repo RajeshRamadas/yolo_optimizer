@@ -22,20 +22,19 @@ search_space:
   
   # Advanced architecture options
   use_complex: [1, 1]           # Always use complex model (more efficient design)
-  activation: [0, 1, 2]         # Try different activations (SiLU, ReLU, Mish)
+  activation: [0, 1]            # Try different activations (SiLU, ReLU)
   use_cbam: [0, 1]              # Test with and without attention
   dropout_rate: [0.1, 0.3]      # Moderate dropout for regularization
   use_gating: [0, 1]            # Try with and without gating
   bottleneck_ratio: [0.5, 0.5]  # Fixed bottleneck ratio for consistency
   num_heads: [2, 4]             # Fewer attention heads
-  skip_connections: [1, 2]      # Dense or residual connections for faster gradient flow
+  skip_connections: [0, 2]      # Standard or residual connections for faster gradient flow
   use_eca: [0, 1]               # Try with and without ECA
 
 # Mapping for categorical parameters
 activation_mapping:
   0: "SiLU"    # Default YOLOv8 activation
   1: "ReLU"    # Simpler activation, sometimes trains faster
-  2: "Mish"    # Smooth alternative to ReLU
 
 skip_connections_mapping:
   0: "standard"  # Standard YOLOv8 connections
@@ -56,7 +55,7 @@ initial_test:
   use_gating: false
   bottleneck_ratio: 0.5
   num_heads: 2
-  skip_connections: "residual"
+  skip_connections: "standard"
   use_eca: true
 
 # Optimization settings
