@@ -853,6 +853,13 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
         else:
             logging.warning(f"Trial {iteration + 1} failed to produce a valid model.")
     
+    # Get the results directory from config
+    directories = config.get('directories', {})
+    results_dir = directories.get('results_dir', 'results')
+    if not os.path.isabs(results_dir):
+        base_dir = directories.get('base_dir', '.')
+        results_dir = os.path.join(base_dir, results_dir)
+    
     # Check if we have a best model
     if best_model_path and os.path.exists(best_model_path):
         logging.info(f"Neural architecture search completed successfully.")
@@ -867,7 +874,7 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
         log_to_tensorboard(writer, "search/best_map50", best_map50, num_iterations)
         
         # Generate performance summary
-        create_performance_summary(all_models, best_model_path, config)
+        create_performance_summary(all_models, best_model_path, results_dir)
         
         return best_model_path
     else:
@@ -889,7 +896,7 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
                 logging.info(f"Saved alternative model to: {alternative_path}")
                 
                 # Generate performance summary
-                create_performance_summary(all_models, alternative_path, config)
+                create_performance_summary(all_models, alternative_path, results_dir)
                 
                 return alternative_path
             except Exception as e:
@@ -917,7 +924,7 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
             
             # Generate performance summary
             if all_models:
-                create_performance_summary(all_models, fallback_path, config)
+                create_performance_summary(all_models, fallback_path, results_dir)
             
             return fallback_path
         except Exception as e:
@@ -925,16 +932,15 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
             logging.error(f"Error details: {str(e)}")
             logging.error("Architecture search failed completely.")
             return None
-
-
-def create_performance_summary(all_models, best_model_path, config):
+            
+def create_performance_summary(all_models, best_model_path, output_dir):
     """
     Create a summary table of all model performances from architecture search
     
     Args:
         all_models: List of tuples (model_path, map50, precision, recall)
         best_model_path: Path to the best model
-        config: Configuration dictionary
+        output_dir: Directory to save the summary files
         
     Returns:
         Tuple of paths (html_path, csv_path) to the created summary files
@@ -944,15 +950,8 @@ def create_performance_summary(all_models, best_model_path, config):
         from datetime import datetime
         import re
         
-        # Get results directory from config
-        directories = config.get('directories', {})
-        results_dir = directories.get('results_dir', 'results')
-        if not os.path.isabs(results_dir):
-            base_dir = directories.get('base_dir', '.')
-            results_dir = os.path.join(base_dir, results_dir)
-        
-        # Ensure the results directory exists
-        os.makedirs(results_dir, exist_ok=True)
+        # Ensure the output directory exists
+        os.makedirs(output_dir, exist_ok=True)
         
         # Create a timestamp for filenames
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -995,11 +994,11 @@ def create_performance_summary(all_models, best_model_path, config):
         df = df.sort_values(by=['mAP@50'], ascending=False)
         
         # Save as CSV
-        csv_path = os.path.join(results_dir, f'architecture_search_results_{timestamp}.csv')
+        csv_path = os.path.join(output_dir, f'architecture_search_results_{timestamp}.csv')
         df.to_csv(csv_path, index=False)
         
         # Save as formatted HTML with styling
-        html_path = os.path.join(results_dir, f'architecture_search_results_{timestamp}.html')
+        html_path = os.path.join(output_dir, f'architecture_search_results_{timestamp}.html')
         
         # Create styled HTML
         html_content = f"""
@@ -1063,28 +1062,26 @@ def create_performance_summary(all_models, best_model_path, config):
         
         logging.info(f"Performance summary saved to {csv_path} and {html_path}")
         
-        # Create a symlink or copy to the best_model_dir for convenience
-        best_model_dir = directories.get('best_model_dir', 'best_models')
-        if not os.path.isabs(best_model_dir):
-            best_model_dir = os.path.join(base_dir, best_model_dir)
-            
+        # Also create a copy in the best_model_dir if different from output_dir
         try:
-            csv_link = os.path.join(best_model_dir, 'latest_search_results.csv')
-            html_link = os.path.join(best_model_dir, 'latest_search_results.html')
-            
-            # Remove existing links/files if they exist
-            if os.path.exists(csv_link):
-                os.remove(csv_link)
-            if os.path.exists(html_link):
-                os.remove(html_link)
-            
-            # Create new copies
-            shutil.copy2(csv_path, csv_link)
-            shutil.copy2(html_path, html_link)
-            
-            logging.info(f"Results also available at:")
-            logging.info(f"  - {csv_link}")
-            logging.info(f"  - {html_link}")
+            best_model_dir = os.path.dirname(best_model_path)
+            if os.path.normpath(best_model_dir) != os.path.normpath(output_dir):
+                csv_link = os.path.join(best_model_dir, 'latest_search_results.csv')
+                html_link = os.path.join(best_model_dir, 'latest_search_results.html')
+                
+                # Remove existing files if they exist
+                if os.path.exists(csv_link):
+                    os.remove(csv_link)
+                if os.path.exists(html_link):
+                    os.remove(html_link)
+                
+                # Create new copies
+                shutil.copy2(csv_path, csv_link)
+                shutil.copy2(html_path, html_link)
+                
+                logging.info(f"Results also available at:")
+                logging.info(f"  - {csv_link}")
+                logging.info(f"  - {html_link}")
         except Exception as e:
             logging.warning(f"Could not create convenience links: {e}")
         
@@ -1097,8 +1094,7 @@ def create_performance_summary(all_models, best_model_path, config):
         logging.error(f"Failed to create performance summary: {e}")
         import traceback
         logging.error(traceback.format_exc())
-        return None, None
-        
+        return None, None       
 def create_performance_summary(all_models, best_model_path, output_dir):
     """
     Create a summary table of all model performances from architecture search
