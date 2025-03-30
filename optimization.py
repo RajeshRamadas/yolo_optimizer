@@ -735,13 +735,17 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
         writer: TensorBoard SummaryWriter instance
     
     Returns:
-        Path to the best model found
+        Path to the best model found (or fallback model if all trials fail)
     """
     logging.info("Starting neural architecture search")
     
     # Create directory for trial configurations
     trial_dir = os.path.join(os.getcwd(), "nas_trials")
     os.makedirs(trial_dir, exist_ok=True)
+    os.makedirs(best_model_dir, exist_ok=True)
+    
+    # Initialize list to keep track of all successful models
+    all_models = []  # List of (model_path, map50) tuples for all successful models
     
     # Define search space from config
     search_space = generate_search_space_from_config(config)
@@ -816,6 +820,9 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
             
             logging.info(f"Trial {iteration + 1} results - mAP@50: {map50:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}")
             
+            # Add to list of all successful models
+            all_models.append((model_path, map50))
+            
             # Log to TensorBoard
             log_to_tensorboard(writer, "search/map50", map50, iteration)
             log_to_tensorboard(writer, "search/precision", precision, iteration)
@@ -846,8 +853,8 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
         else:
             logging.warning(f"Trial {iteration + 1} failed to produce a valid model.")
     
-    # Log final results
-    if best_model_path:
+    # Check if we have a best model
+    if best_model_path and os.path.exists(best_model_path):
         logging.info(f"Neural architecture search completed successfully.")
         logging.info(f"Best model: {best_model_path} with mAP@50: {best_map50:.4f}")
         logging.info(f"Search Statistics Summary:")
@@ -858,8 +865,51 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
         
         # Log to TensorBoard
         log_to_tensorboard(writer, "search/best_map50", best_map50, num_iterations)
+        
+        return best_model_path
     else:
-        logging.error("No valid model found during architecture search.")
-    
-    return best_model_path
-
+        # No best model - try to find any successful model
+        logging.warning("Best model not found or was not properly saved.")
+        
+        # Try to find another successful model from our list
+        if all_models:
+            # Sort by map50 score and get the best one
+            all_models.sort(key=lambda x: x[1], reverse=True)
+            best_alternative = all_models[0]
+            
+            logging.info(f"Using alternative model with mAP@50: {best_alternative[1]:.4f}")
+            # Copy it to the best_model_dir
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            alternative_path = os.path.join(best_model_dir, f"alternative_model_map{best_alternative[1]:.4f}_{timestamp}.pt")
+            try:
+                shutil.copy(best_alternative[0], alternative_path)
+                logging.info(f"Saved alternative model to: {alternative_path}")
+                return alternative_path
+            except Exception as e:
+                logging.error(f"Failed to save alternative model: {e}")
+        
+        # If all else fails, create a fallback default model
+        logging.error("No valid models were produced during architecture search. Creating fallback model.")
+        try:
+            # Create a default YOLOv8 model
+            fallback_model = YOLO('yolov8n.pt')
+            logging.info("Created default YOLOv8n model as fallback")
+            
+            # Save it to the best_model_dir
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fallback_path = os.path.join(best_model_dir, f"fallback_default_model_{timestamp}.pt")
+            
+            # If using a pre-trained model, simply copy it
+            if hasattr(fallback_model, 'ckpt_path') and os.path.exists(fallback_model.ckpt_path):
+                shutil.copy(fallback_model.ckpt_path, fallback_path)
+            # Otherwise, save the model directly
+            else:
+                fallback_model.save(fallback_path)
+                
+            logging.info(f"Saved fallback model to: {fallback_path}")
+            return fallback_path
+        except Exception as e:
+            logging.error(f"Failed to create or save fallback model: {e}")
+            logging.error(f"Error details: {str(e)}")
+            logging.error("Architecture search failed completely.")
+            return None
