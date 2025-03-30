@@ -62,15 +62,15 @@ initial_test:
 
 # Optimization settings
 optimization:
-  init_points: 5
-  n_iter: 15
+  init_points: 2
+  n_iter: 5
   performance_threshold: 0.75  # Lower threshold for faster experimentation
   early_stopping: true
   patience: 3
 
 # Training settings
 training:
-  epochs: 50                    # Fewer epochs for faster trials
+  epochs: 10                    # Fewer epochs for faster trials
   patience: 5                   # Early stopping patience
   optimizer: "AdamW"            # More efficient optimizer
   batch_size: 16                # Adjust based on your GPU memory
