@@ -745,7 +745,7 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
     os.makedirs(best_model_dir, exist_ok=True)
     
     # Initialize list to keep track of all successful models
-    all_models = []  # List of (model_path, map50) tuples for all successful models
+    all_models = []  # List of (model_path, map50, precision, recall) tuples for all successful models
     
     # Define search space from config
     search_space = generate_search_space_from_config(config)
@@ -821,7 +821,7 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
             logging.info(f"Trial {iteration + 1} results - mAP@50: {map50:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}")
             
             # Add to list of all successful models
-            all_models.append((model_path, map50))
+            all_models.append((model_path, map50, precision, recall))
             
             # Log to TensorBoard
             log_to_tensorboard(writer, "search/map50", map50, iteration)
@@ -866,6 +866,9 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
         # Log to TensorBoard
         log_to_tensorboard(writer, "search/best_map50", best_map50, num_iterations)
         
+        # Generate performance summary
+        create_performance_summary(all_models, best_model_path, config)
+        
         return best_model_path
     else:
         # No best model - try to find any successful model
@@ -884,6 +887,10 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
             try:
                 shutil.copy(best_alternative[0], alternative_path)
                 logging.info(f"Saved alternative model to: {alternative_path}")
+                
+                # Generate performance summary
+                create_performance_summary(all_models, alternative_path, config)
+                
                 return alternative_path
             except Exception as e:
                 logging.error(f"Failed to save alternative model: {e}")
@@ -907,9 +914,377 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
                 fallback_model.save(fallback_path)
                 
             logging.info(f"Saved fallback model to: {fallback_path}")
+            
+            # Generate performance summary
+            if all_models:
+                create_performance_summary(all_models, fallback_path, config)
+            
             return fallback_path
         except Exception as e:
             logging.error(f"Failed to create or save fallback model: {e}")
             logging.error(f"Error details: {str(e)}")
             logging.error("Architecture search failed completely.")
             return None
+
+
+def create_performance_summary(all_models, best_model_path, config):
+    """
+    Create a summary table of all model performances from architecture search
+    
+    Args:
+        all_models: List of tuples (model_path, map50, precision, recall)
+        best_model_path: Path to the best model
+        config: Configuration dictionary
+        
+    Returns:
+        Tuple of paths (html_path, csv_path) to the created summary files
+    """
+    try:
+        import pandas as pd
+        from datetime import datetime
+        import re
+        
+        # Get results directory from config
+        directories = config.get('directories', {})
+        results_dir = directories.get('results_dir', 'results')
+        if not os.path.isabs(results_dir):
+            base_dir = directories.get('base_dir', '.')
+            results_dir = os.path.join(base_dir, results_dir)
+        
+        # Ensure the results directory exists
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # Create a timestamp for filenames
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Create a DataFrame to store results
+        results = []
+        
+        # Extract trial number from model paths
+        pattern = r'trial[_]?(\d+)'
+        
+        # Process each model
+        for model_data in all_models:
+            model_path = model_data[0]
+            map50 = model_data[1]
+            precision = model_data[2] if len(model_data) > 2 else None
+            recall = model_data[3] if len(model_data) > 3 else None
+            
+            # Get filename only
+            filename = os.path.basename(model_path)
+            
+            # Extract trial number
+            match = re.search(pattern, model_path)
+            trial_num = int(match.group(1)) if match else -1
+            
+            # Check if this is the best model
+            is_best = os.path.normpath(model_path) == os.path.normpath(best_model_path)
+            
+            # Add to results
+            results.append({
+                'Trial': trial_num,
+                'Model Filename': filename,
+                'mAP@50': round(map50, 4) if map50 is not None else None,
+                'Precision': round(precision, 4) if precision is not None else None,
+                'Recall': round(recall, 4) if recall is not None else None,
+                'Is Best Model': '✓' if is_best else ''
+            })
+        
+        # Convert to DataFrame and sort by mAP (descending)
+        df = pd.DataFrame(results)
+        df = df.sort_values(by=['mAP@50'], ascending=False)
+        
+        # Save as CSV
+        csv_path = os.path.join(results_dir, f'architecture_search_results_{timestamp}.csv')
+        df.to_csv(csv_path, index=False)
+        
+        # Save as formatted HTML with styling
+        html_path = os.path.join(results_dir, f'architecture_search_results_{timestamp}.html')
+        
+        # Create styled HTML
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>YOLO Architecture Search Results</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                h1 {{ color: #333366; }}
+                table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+                th {{ background-color: #333366; color: white; text-align: left; padding: 8px; }}
+                td {{ border: 1px solid #ddd; padding: 8px; }}
+                tr:nth-child(even) {{ background-color: #f2f2f2; }}
+                tr:hover {{ background-color: #ddd; }}
+                .best-model {{ background-color: #e6ffe6; font-weight: bold; }}
+                .summary {{ margin-top: 30px; padding: 10px; background-color: #f8f8f8; border: 1px solid #ddd; }}
+            </style>
+        </head>
+        <body>
+            <h1>YOLO Architecture Search Results</h1>
+            <div class="summary">
+                <h2>Summary</h2>
+                <p>Total models trained: {len(results)}</p>
+                <p>Best model: {os.path.basename(best_model_path) if best_model_path else 'None'}</p>
+                <p>Best mAP@50: {df['mAP@50'].max() if not df.empty else 'N/A'}</p>
+                <p>Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+            </div>
+            
+            <h2>Performance Table</h2>
+        """
+        
+        # Convert DataFrame to HTML with custom formatting
+        table_html = df.to_html(index=False, classes='dataframe')
+        
+        # Add highlighting for the best model
+        for i, row in df.iterrows():
+            if row['Is Best Model'] == '✓':
+                # Replace the row with a version that has the "best-model" class
+                row_html = f'<tr class="best-model">'
+                for cell in row.values:
+                    row_html += f"<td>{cell}</td>"
+                row_html += '</tr>'
+                
+                table_row = f'<tr>'
+                for cell in row.values:
+                    table_row += f"<td>{cell}</td>"
+                table_row += '</tr>'
+                
+                table_html = table_html.replace(table_row, row_html)
+        
+        html_content += table_html
+        html_content += """
+        </body>
+        </html>
+        """
+        
+        # Write the HTML file
+        with open(html_path, 'w') as f:
+            f.write(html_content)
+        
+        logging.info(f"Performance summary saved to {csv_path} and {html_path}")
+        
+        # Create a symlink or copy to the best_model_dir for convenience
+        best_model_dir = directories.get('best_model_dir', 'best_models')
+        if not os.path.isabs(best_model_dir):
+            best_model_dir = os.path.join(base_dir, best_model_dir)
+            
+        try:
+            csv_link = os.path.join(best_model_dir, 'latest_search_results.csv')
+            html_link = os.path.join(best_model_dir, 'latest_search_results.html')
+            
+            # Remove existing links/files if they exist
+            if os.path.exists(csv_link):
+                os.remove(csv_link)
+            if os.path.exists(html_link):
+                os.remove(html_link)
+            
+            # Create new copies
+            shutil.copy2(csv_path, csv_link)
+            shutil.copy2(html_path, html_link)
+            
+            logging.info(f"Results also available at:")
+            logging.info(f"  - {csv_link}")
+            logging.info(f"  - {html_link}")
+        except Exception as e:
+            logging.warning(f"Could not create convenience links: {e}")
+        
+        return html_path, csv_path
+        
+    except ImportError:
+        logging.warning("pandas not installed - cannot create performance summary table")
+        return None, None
+    except Exception as e:
+        logging.error(f"Failed to create performance summary: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return None, None
+        
+def create_performance_summary(all_models, best_model_path, output_dir):
+    """
+    Create a summary table of all model performances from architecture search
+    
+    Args:
+        all_models: List of tuples (model_path, map50, [optional additional metrics])
+        best_model_path: Path to the best model
+        output_dir: Directory to save the summary
+    
+    Returns:
+        Path to the created summary file
+    """
+    import os
+    import pandas as pd
+    from datetime import datetime
+    import re
+    
+    # Ensure the output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Create a DataFrame to store results
+    results = []
+    
+    # Extract trial number from model paths
+    pattern = r'trial(\d+)'
+    
+    # Process each model
+    for model_data in all_models:
+        model_path = model_data[0]
+        map50 = model_data[1]
+        
+        # Extract additional metrics if available
+        precision = model_data[2] if len(model_data) > 2 else None
+        recall = model_data[3] if len(model_data) > 3 else None
+        
+        # Get filename only
+        filename = os.path.basename(model_path)
+        
+        # Extract trial number
+        match = re.search(pattern, model_path)
+        trial_num = int(match.group(1)) if match else -1
+        
+        # Check if this is the best model
+        is_best = os.path.abspath(model_path) == os.path.abspath(best_model_path)
+        
+        # Add to results
+        results.append({
+            'Trial': trial_num,
+            'Model Filename': filename,
+            'mAP@50': round(map50, 4) if map50 is not None else None,
+            'Precision': round(precision, 4) if precision is not None else None,
+            'Recall': round(recall, 4) if recall is not None else None,
+            'Is Best Model': '✓' if is_best else ''
+        })
+    
+    # Convert to DataFrame and sort by mAP (descending)
+    df = pd.DataFrame(results)
+    df = df.sort_values(by=['mAP@50'], ascending=False)
+    
+    # Create a timestamp for the filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Save as CSV
+    csv_path = os.path.join(output_dir, f'architecture_search_results_{timestamp}.csv')
+    df.to_csv(csv_path, index=False)
+    
+    # Save as formatted HTML with styling
+    html_path = os.path.join(output_dir, f'architecture_search_results_{timestamp}.html')
+    
+    # Create styled HTML
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>YOLO Architecture Search Results</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+            h1 {{ color: #333366; }}
+            table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+            th {{ background-color: #333366; color: white; text-align: left; padding: 8px; }}
+            td {{ border: 1px solid #ddd; padding: 8px; }}
+            tr:nth-child(even) {{ background-color: #f2f2f2; }}
+            tr:hover {{ background-color: #ddd; }}
+            .best-model {{ background-color: #e6ffe6; font-weight: bold; }}
+            .summary {{ margin-top: 30px; padding: 10px; background-color: #f8f8f8; border: 1px solid #ddd; }}
+        </style>
+    </head>
+    <body>
+        <h1>YOLO Architecture Search Results</h1>
+        <div class="summary">
+            <h2>Summary</h2>
+            <p>Total models trained: {len(results)}</p>
+            <p>Best model: {os.path.basename(best_model_path) if best_model_path else 'None'}</p>
+            <p>Best mAP@50: {df['mAP@50'].max() if not df.empty else 'N/A'}</p>
+            <p>Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+        </div>
+        
+        <h2>Performance Table</h2>
+    """
+    
+    # Convert DataFrame to HTML with custom formatting
+    table_html = df.to_html(index=False, classes='dataframe')
+    
+    # Add highlighting for the best model
+    for i, row in df.iterrows():
+        if row['Is Best Model'] == '✓':
+            # Replace the row with a version that has the "best-model" class
+            row_html = f'<tr class="best-model">{" ".join([f"<td>{cell}</td>" for cell in row.values])}</tr>'
+            table_row = f'<tr>{" ".join([f"<td>{cell}</td>" for cell in row.values])}</tr>'
+            table_html = table_html.replace(table_row, row_html)
+    
+    html_content += table_html
+    html_content += """
+    </body>
+    </html>
+    """
+    
+    # Write the HTML file
+    with open(html_path, 'w') as f:
+        f.write(html_content)
+    
+    logging.info(f"Performance summary saved to {csv_path} and {html_path}")
+    
+    return html_path, csv_path
+
+
+# Then add this to the end of run_architecture_search, before returning the best model path:
+
+def update_run_architecture_search_with_summary(config, best_model_dir, best_model_path, all_models):
+    """
+    Generate performance summary at the end of the search
+    """
+    try:
+        # Ensure all models includes the metrics (map50, precision, recall)
+        models_with_metrics = []
+        for model_path, map50 in all_models:
+            try:
+                # If precision and recall not stored, re-evaluate the model
+                metrics = evaluate_trial(model_path, dataset_path)
+                models_with_metrics.append(
+                    (model_path, map50, metrics.get("precision", None), metrics.get("recall", None))
+                )
+            except Exception as e:
+                logging.warning(f"Could not re-evaluate model {model_path}: {e}")
+                models_with_metrics.append((model_path, map50, None, None))
+        
+        # Get results directory from config
+        directories = config.get('directories', {})
+        results_dir = directories.get('results_dir', 'results')
+        if not os.path.isabs(results_dir):
+            base_dir = directories.get('base_dir', '.')
+            results_dir = os.path.join(base_dir, results_dir)
+        
+        # Create the performance summary
+        html_path, csv_path = create_performance_summary(
+            models_with_metrics,
+            best_model_path,
+            results_dir
+        )
+        
+        logging.info(f"Architecture search performance summary created:")
+        logging.info(f"  - HTML: {html_path}")
+        logging.info(f"  - CSV: {csv_path}")
+        
+        # Create a symlink or copy to the best_model_dir for convenience
+        try:
+            csv_link = os.path.join(best_model_dir, 'latest_search_results.csv')
+            html_link = os.path.join(best_model_dir, 'latest_search_results.html')
+            
+            # Remove existing links/files if they exist
+            if os.path.exists(csv_link):
+                os.remove(csv_link)
+            if os.path.exists(html_link):
+                os.remove(html_link)
+            
+            # Create new links or copies
+            shutil.copy2(csv_path, csv_link)
+            shutil.copy2(html_path, html_link)
+            
+            logging.info(f"Results also available at:")
+            logging.info(f"  - {csv_link}")
+            logging.info(f"  - {html_link}")
+        except Exception as e:
+            logging.warning(f"Could not create convenience links: {e}")
+    
+    except Exception as e:
+        logging.error(f"Failed to create performance summary: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
