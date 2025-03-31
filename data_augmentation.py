@@ -136,12 +136,25 @@ def configure_additional_augmentations(aug_params):
             ))
             
         if aug_params.get('cutout', False):
-            transform_list.append(A.Cutout(
-                num_holes=aug_params.get('cutout_holes', 4),
-                max_h_size=aug_params.get('cutout_height', 8),
-                max_w_size=aug_params.get('cutout_width', 8),
-                p=aug_params.get('cutout_prob', 0.3)
-            ))
+            try:
+                # Try newer version (CoarseDropout)
+                transform_list.append(A.CoarseDropout(
+                    max_holes=aug_params.get('cutout_holes', 4),
+                    max_height=aug_params.get('cutout_height', 8),
+                    max_width=aug_params.get('cutout_width', 8),
+                    p=aug_params.get('cutout_prob', 0.3)
+                ))
+            except Exception:
+                try:
+                    # Try older version (Cutout)
+                    transform_list.append(A.Cutout(
+                        num_holes=aug_params.get('cutout_holes', 4),
+                        max_h_size=aug_params.get('cutout_height', 8),
+                        max_w_size=aug_params.get('cutout_width', 8),
+                        p=aug_params.get('cutout_prob', 0.3)
+                    ))
+                except Exception as e:
+                    logging.warning(f"Could not add cutout augmentation: {e}")
         
         # Skip if no transforms were added
         if not transform_list:
