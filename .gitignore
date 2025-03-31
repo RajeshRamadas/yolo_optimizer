@@ -212,3 +212,4 @@ temp/
 
 # Docker
 .dockerignore
+doc/~$report.docx
