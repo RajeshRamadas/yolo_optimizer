@@ -38,7 +38,7 @@ except ImportError:
 
 # Constants
 MAX_TRIALS = 50
-EARLY_STOP_PATIENCE = 5
+DEFAULT_EARLY_STOP_PATIENCE  = 5
 
 # NEW: Track model fingerprints to detect duplicates
 MODEL_FINGERPRINTS = set()
@@ -845,11 +845,34 @@ def run_architecture_search(config, dataset_path, best_model_dir, args, performa
                     break
             else:
                 no_improvement_count += 1
+
+            # Get early stopping patience from config, fallback to default if not found
+            early_stop_patience = opt_config.get("patience", DEFAULT_EARLY_STOP_PATIENCE)
+
+            # Early stopping if no improvement for patience iterations
+            if opt_config.get("early_stopping", True) and no_improvement_count >= early_stop_patience:
+                logging.info(f"No improvement for {early_stop_patience} iterations. Stopping search.")
+                break
+                
+            """
+            if map50 > best_map50:
+                best_map50 = map50
+                best_model_path = save_best_model(model_path, best_model_dir, map50, iteration)
+                no_improvement_count = 0
+                
+                # Early stopping if we reach performance threshold
+                perf_threshold = opt_config.get("performance_threshold", performance_threshold)
+                if map50 >= perf_threshold:
+                    logging.info(f"Performance threshold {perf_threshold} reached. Stopping search.")
+                    break
+            else:
+                no_improvement_count += 1
             
             # Early stopping if no improvement for several iterations
             if no_improvement_count >= EARLY_STOP_PATIENCE:
                 logging.info(f"No improvement for {EARLY_STOP_PATIENCE} iterations. Stopping search.")
                 break
+            """
         else:
             logging.warning(f"Trial {iteration + 1} failed to produce a valid model.")
     
