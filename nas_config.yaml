@@ -1,95 +1,116 @@
-# YOLO Neural Architecture Search Configuration with Complex Architecture Options
+# Neural Architecture Search Configuration for Fast Learning YOLO Models
 
-# Directories
+# Directory structure
 directories:
-  base_dir: .
-  best_model_dir: best_model
-  pruned_model_dir: pruned_models
-  quantized_model_dir: quantized_models
+  base_dir: "yolo_opt_results"
+  best_model_dir: "best_models"
+  pruned_model_dir: "pruned_models"
+  quantized_model_dir: "quantized_models"
+  results_dir: "results"
 
-# Dataset path
-dataset_path: data.yaml
+# Dataset configuration
+dataset_path: "data.yaml"  # This will be overridden by command line
 
-# Bayesian optimization settings
+# Search space for architecture optimization
+search_space:
+  # Architecture parameters - EXPANDED RANGES
+  depth_mult: [0.25, 1.0]       # Wider range for depth multiplier
+  width_mult: [0.25, 1.0]       # Wider range for width multiplier
+  kernel_size: [3, 7]           # Allow larger kernels
+  num_channels: [16, 96]        # Wider range for channel count
+  resolution: [256, 640]        # Wider range for resolution
+  
+  # Advanced architecture options - EXPANDED OPTIONS
+  use_complex: [0, 1]           # Allow both simple and complex models
+  activation: [0, 3]            # Try more activation functions (SiLU, ReLU, LeakyReLU, Hardswish)
+  use_cbam: [0, 1]              # Test with and without attention
+  dropout_rate: [0.0, 0.5]      # Wider range for dropout
+  use_gating: [0, 1]            # Try with and without gating
+  bottleneck_ratio: [0.25, 0.75]  # Variable bottleneck ratio
+  num_heads: [1, 8]             # More variety in attention heads
+  skip_connections: [0, 2]      # Standard, dense or residual connections
+  use_eca: [0, 1]               # Try with and without ECA
+
+# Mapping for categorical parameters
+activation_mapping:
+  0: "SiLU"       # Default YOLOv8 activation
+  1: "ReLU"       # Simpler activation, sometimes trains faster
+  2: "LeakyReLU"  # Better gradient flow for negative values
+  3: "Hardswish"  # Modern activation with good properties
+
+skip_connections_mapping:
+  0: "standard"   # Standard YOLOv8 connections
+  1: "dense"      # DenseNet-style connections
+  2: "residual"   # ResNet-style connections
+
+# Initial test configuration
+initial_test:
+  depth_mult: 0.33
+  width_mult: 0.5
+  kernel_size: 3
+  num_channels: 32
+  resolution: 320
+  use_complex: true
+  activation: "ReLU"
+  use_cbam: false
+  dropout_rate: 0.1
+  use_gating: false
+  bottleneck_ratio: 0.5
+  num_heads: 2
+  skip_connections: "standard"
+  use_eca: true
+
+# Optimization settings
 optimization:
   init_points: 2
   n_iter: 5
-  performance_threshold: 0.85
-  random_state: 42
+  performance_threshold: 0.75  # Lower threshold for faster experimentation
+  early_stopping: true
+  patience: 3
 
-# Search space definition - [min_value, max_value]
-search_space:
-  # Basic architecture parameters
-  resolution: [320, 520]     # Input image size
-  depth_mult: [0.33, 0.75]   # Depth multiplier (scaling of layers)
-  width_mult: [0.25, 0.75]   # Width multiplier (scaling of channels)
-  kernel_size: [3, 5]        # Kernel size for specific layers
-  num_channels: [16, 128]    # Base number of channels
-  
-  # Training hyperparameters
-  lr0: [1.0e-5, 1.0e-2]      # Initial learning rate
-  momentum: [0.6, 0.98]      # Momentum for optimizer
-  batch_size: [8, 16]        # Training batch size
-  iou_thresh: [0.4, 0.9]     # IoU threshold for NMS
-  weight_decay: [0.0001, 0.01] # Weight decay regularization
-  
-  # Advanced architecture options
-  use_complex: [0, 1]        # Whether to use complex architecture options (0 or 1)
-  activation: [0, 1, 2]      # 0=SiLU, 1=ReLU, 2=Mish
-  use_cbam: [0, 1]           # Whether to use CBAM attention (0 or 1)
-  dropout_rate: [0.0, 0.3]   # Dropout rate for regularization
-  use_gating: [0, 1]         # Whether to use gated convolutions (0 or 1)
-  bottleneck_ratio: [0.25, 0.5] # Channel reduction ratio in bottleneck blocks
-  num_heads: [2, 4, 8]       # Number of attention heads
-  skip_connections: [0, 1, 2] # 0=standard, 1=dense, 2=residual
-  use_eca: [0, 1]            # Whether to use Efficient Channel Attention (0 or 1)
-
-# Initial test configuration (used with --low-memory flag)
-initial_test:
-  resolution: 256
-  depth_mult: 0.33
-  width_mult: 0.25
-  kernel_size: 3
-  num_channels: 16
-  lr0: 0.01
-  momentum: 0.937
-  batch_size: 4
-  iou_thresh: 0.7
-  weight_decay: 0.0005
-  use_complex: 0
-  activation: 0
-  use_cbam: 0
-  dropout_rate: 0.0
-  use_gating: 0
-  bottleneck_ratio: 0.25
-  num_heads: 2
-  skip_connections: 0
-  use_eca: 0
-
-# Training configuration
+# Training settings
 training:
-  epochs: 5
-  patience: 5
-  optimizer: AdamW
+  epochs: 10                    # Fewer epochs for faster trials
+  patience: 5                   # Early stopping patience
+  optimizer: "AdamW"            # More efficient optimizer
+  batch_size: 16                # Adjust based on your GPU memory
   save: true
   verbose: true
+  warmup_epochs: 3              # Warmup for first few epochs
+  warmup_momentum: 0.8          # Start with higher momentum
+  lr0: 0.01                     # Higher initial learning rate
+  lrf: 0.01                     # Lower final learning rate ratio
+  use_ema: true                 # Use exponential moving average
 
-# Pruning configuration
-pruning:
-  prune_amounts: [0.1, 0.2, 0.3]
-  finetune: true
-  finetune_epochs: 10
-
-# Architecture transformation
-activation_mapping:
-  0: SiLU
-  1: ReLU
-  2: Mish
-  3: LeakyReLU
-  4: Hardswish
-  5: PReLU
-
-skip_connections_mapping:
-  0: standard
-  1: dense
-  2: residual
+# Data augmentation settings
+augmentation:
+  # YOLOv8 standard augmentations (slightly reduced)
+  use_mosaic: true
+  mosaic_prob: 0.8              # Slightly reduced from 1.0
+  use_mixup: false              # Disable for faster learning
+  use_copy_paste: false
+  
+  # Basic augmentations (conservative)
+  hsv_h: 0.015                  # HSV Hue augmentation
+  hsv_s: 0.5                    # HSV Saturation (reduced)
+  hsv_v: 0.3                    # HSV Value (reduced)
+  degrees: 0.0                  # No rotation for faster training
+  translate: 0.1                # Translation
+  scale: 0.4                    # Scaling (reduced)
+  shear: 0.0                    # No shear
+  perspective: 0.0              # No perspective
+  flipud: 0.0                   # No vertical flip
+  fliplr: 0.5                   # Standard horizontal flip
+  
+  # Albumentations augmentations
+  use_albumentations: true
+  random_brightness_contrast: true
+  brightness_limit: 0.2
+  contrast_limit: 0.2
+  random_brightness_contrast_prob: 0.2
+  blur: false
+  cutout: true                  # Helps with robustness
+  cutout_holes: 4               # Fewer holes
+  cutout_height: 8
+  cutout_width: 8
+  cutout_prob: 0.3

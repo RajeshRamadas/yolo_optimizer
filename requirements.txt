@@ -1,37 +1,43 @@
 # Core dependencies
-torch>=1.10.0
-torchvision>=0.11.0
+torch>=2.0.0
+torchvision>=0.15.0
 ultralytics>=8.0.0  # For YOLOv8
-numpy>=1.20.0
+numpy>=1.22.0
 pyyaml>=6.0
+opencv-python==4.5.5.64
 matplotlib>=3.5.0
 
-# Bayesian optimization
-bayesian-optimization>=1.2.0
+# Optimization
+bayesian-optimization>=1.4.0
+scikit-optimize>=0.9.0  # For Bayesian optimization
 
 # Visualization and logging
-tensorboard>=2.9.0
-seaborn>=0.11.0
-tabulate>=0.8.9  # Added for table formatting
-
-# ONNX Runtime for quantized model inference
-onnx>=1.10.0
-onnxruntime>=1.10.0
-onnx-simplifier>=0.3.10
-
-# Optional: GPU support for ONNX Runtime
-# onnxruntime-gpu>=1.10.0
+tensorboard>=2.11.0
+seaborn>=0.12.0
+tabulate>=0.9.0  # For table formatting
 
 # Data processing and analysis
-pandas>=1.3.0
-scikit-learn>=1.0.0
+pandas>=1.5.0
+scikit-learn>=1.2.0
+
+# Data augmentation
+albumentations==1.3.0
+scikit-image>=0.19.0  # Additional image processing capabilities
+
+# ONNX Runtime for quantized model inference
+onnx>=1.13.0
+onnxruntime>=1.14.0
+onnx-simplifier>=0.4.0
+
+# Optional: GPU support for ONNX Runtime
+# onnxruntime-gpu>=1.14.0
 
 # Utilities
-pillow>=9.0.0
-tqdm>=4.62.0
+pillow>=9.3.0
+tqdm>=4.64.0
 
 # Optional: For development
-# pytest>=6.2.5
-# black>=22.3.0
-# isort>=5.10.0
-# flake8>=4.0.0
+# pytest>=7.3.0
+# black>=23.1.0
+# isort>=5.12.0
+# flake8>=6.0.0
