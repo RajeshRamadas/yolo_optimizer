@@ -1,0 +1,82 @@
+# YOLOv8 Fine-tuning Configuration
+# Focused on transfer learning with YOLOv8n pretrained model
+
+# Directory structure
+directories:
+  base_dir: "yolo_fine_tuning"
+  models_dir: "models"
+  results_dir: "results"
+
+# Dataset configuration
+dataset:
+  path: "data.yaml"  # Will be overridden by command line if provided
+  val_split: 0.2
+
+# Base models to use for fine-tuning
+base_models:
+  - name: "yolov8n.pt"
+    description: "YOLOv8 Nano Pretrained Model"
+
+# Fine-tuning methods configuration
+fine_tuning:
+  methods:
+    # Method 1: Fine-tune all layers
+    - name: "full_finetune"
+      description: "Fine-tune all layers of YOLOv8n"
+      freeze_layers: null  # null means no freezing (train all layers)
+      learning_rate: 0.001
+      epochs: 20
+
+    # Method 2: Freeze backbone, train only detection head
+    - name: "head_only"
+      description: "Transfer learning - train only detection head"
+      freeze_layers: "backbone"  # Special keyword to freeze backbone
+      learning_rate: 0.01
+      epochs: 15
+
+    # Method 3: Progressive unfreezing (gradual unfreezing)
+    - name: "progressive_unfreezing"
+      description: "Progressive transfer learning strategy"
+      progressive: true
+      phases:
+        # Phase 1: Train only head with frozen backbone
+        - freeze_layers: "backbone"
+          epochs: 5
+          learning_rate: 0.01
+        # Phase 2: Unfreeze some layers (keep first 10 from end trainable)
+        - freeze_layers: -10
+          epochs: 10
+          learning_rate: 0.001
+        # Phase 3: Unfreeze all layers and train with low learning rate
+        - freeze_layers: null
+          epochs: 10
+          learning_rate: 0.0001
+
+    # Method 4: Domain adaptation (focus on final layers with higher learning rate)
+    - name: "domain_adaptation"
+      description: "Adapt YOLOv8n to new domain"
+      freeze_layers: -5
+      learning_rate: 0.02
+      epochs: 10
+      
+    # Method 5: Feature extraction (freeze everything except final classifier)
+    - name: "feature_extraction"
+      description: "Use YOLOv8n as feature extractor"
+      freeze_layers: -3
+      learning_rate: 0.03
+      epochs: 8
+
+# Training settings
+training:
+  batch_size: 16
+  patience: 5  # Early stopping patience
+  optimizer: "AdamW"  # Can be SGD, Adam, AdamW
+  device: null  # null means auto-detect, can be "0" or "cpu"
+  image_size: 640
+  save_period: 5  # Save checkpoint every N epochs
+
+# Evaluation settings
+evaluation:
+  metrics: ["map50", "map50-95", "precision", "recall"]
+  iou_thresholds: [0.5, 0.7]
+  confidence_threshold: 0.25
