@@ -168,7 +168,7 @@ if __name__ == "__main__":
                         help="Operation mode: 'search' for architecture search, 'optimize' for model optimization, 'full' for both")
     parser.add_argument("--model", type=str, default=None,
                         help="Path to the model to optimize (required for 'optimize' mode)")
-    parser.add_argument("--config", type=str, default="nas_config.yaml",
+    parser.add_argument("--config", type=str, default="configs/nas_config.yaml",
                         help="Path to the YAML configuration file")
     parser.add_argument("--batch", type=int, default=4,
                         help="Batch size for training (default: 4)")

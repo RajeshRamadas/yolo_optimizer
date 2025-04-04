@@ -29,7 +29,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="YOLO Neural Architecture Search and Fine-tuning")
     
     # NAS arguments
-    parser.add_argument("--nas_config", type=str, default="nas_config.yaml",
+    parser.add_argument("--nas_config", type=str, default="configs/nas_config.yaml",
                         help="Path to NAS configuration file")
     parser.add_argument("--dataset", type=str, required=True,
                         help="Path to dataset configuration (data.yaml)")
@@ -43,7 +43,7 @@ def parse_arguments():
                        help="Use lower memory settings")
     
     # Fine-tuning arguments
-    parser.add_argument("--ft_config", type=str, default="fine_tuning_config.yaml",
+    parser.add_argument("--ft_config", type=str, default="configs/fine_tuning_config.yaml",
                         help="Path to fine-tuning configuration file")
     parser.add_argument("--skip_ft", action="store_true",
                         help="Skip fine-tuning")

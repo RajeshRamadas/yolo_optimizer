@@ -40,7 +40,7 @@ def ensure_pretrained_model(model_path="yolov8n.pt"):
 class YOLOFineTuner:
     """Class to handle fine-tuning and transfer learning for YOLOv8 models."""
     
-    def __init__(self, config_path="fine_tuning_config.yaml", nas_model_path=None):
+    def __init__(self, config_path="configs/fine_tuning_config.yaml", nas_model_path=None):
         """
         Initialize the fine-tuner.
         
@@ -490,7 +490,7 @@ class YOLOFineTuner:
         return summary
 
 # Module-level functions (outside the class)
-def run_pretrained_fine_tuning(dataset_path, config_path="fine_tuning_config.yaml"):
+def run_pretrained_fine_tuning(dataset_path, config_path="configs/fine_tuning_config.yaml"):
     """
     Run fine-tuning specifically on YOLOv8n pretrained model
     
@@ -522,7 +522,7 @@ def run_pretrained_fine_tuning(dataset_path, config_path="fine_tuning_config.yam
     results = fine_tuner.run_all_fine_tuning(dataset_path)
     return results
 
-def create_fine_tuning_config(output_path="fine_tuning_config.yaml"):
+def create_fine_tuning_config(output_path="configs/fine_tuning_config.yaml"):
     """
     Create a default fine-tuning configuration file.
     
@@ -610,7 +610,7 @@ def main():
     
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Fine-tune YOLOv8 models")
-    parser.add_argument("--config", type=str, default="fine_tuning_config.yaml",
+    parser.add_argument("--config", type=str, default="configs/fine_tuning_config.yaml",
                         help="Path to fine-tuning configuration file")
     parser.add_argument("--model", type=str, default=None,
                         help="Path to model to fine-tune")

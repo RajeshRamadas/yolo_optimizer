@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 
 
-def load_yaml_config(config_path="nas_config.yaml"):
+def load_yaml_config(config_path="configs/nas_config.yaml"):
     """
     Load a YAML configuration file.
 
